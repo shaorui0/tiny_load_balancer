@@ -69,7 +69,6 @@
 
 # 系统设计
 
-checklist 《代码大全2》
 
 
 ## 基本介绍
@@ -113,7 +112,33 @@ health check
 
 
 
-### 错误恢复、处理、错误信息保存
+
+
+## check list
+
+> 《code complete 2》
+
+### 1. 与外部系统的接口
+
+parse url of backend server from command line.
+
+
+##### 输入
+
+格式：request
+来源：作为server，肯定是监听某个 ip + port
+
+
+##### 输出
+
+格式：response
+来源：作为backend的client
+- 选择backend ==> ip + port
+- 转发request
+- 获取response，并转发response
+
+
+### 2. 错误恢复、处理、错误信息保存
 
 1. log要做好
 2. 每个阶段验证数据是否正常
@@ -123,45 +148,25 @@ health check
     - 异常接收（error、exception）
 
 
-### 吞吐量
+### 3. 吞吐量
 
 TODO test, 1 + n
 
 
 
-### time about health checking
+### 4. time about health checking
 
 1. 主动检查, 10 millseconds
 2. 被动检查, 10 minutes
 
 
-### 用户唯一关心的就是能接受到正常的 response
+### 5. 用户唯一关心的就是能接受到正常的 response
 
 1. backend可以返回 `response(backend_name)` 作为验证
 2. TODO 大量的吞吐情况下，如何更大程度的减少瓶颈（原子操作 + 锁带来的损失）
 
 
-## 与外部系统的接口
-
-parse url of backend server from command line.
-
-### 输入
-
-格式：request
-来源：作为server，肯定是监听某个 ip + port
-
-
-### 输出
-
-格式：response
-来源：作为backend的client
-- 选择backend ==> ip + port
-- 转发request
-- 获取response，并转发response
-
-## check list
-
-### 独立测试？
+### 6. 独立测试？
 
 1. rp 的测试方式。本质就是作为一个client
 2. get_next:
@@ -175,11 +180,11 @@ parse url of backend server from command line.
     - 直接终止？
     - 解决问题 + 记录？
 
-### 模块定义是否清楚？
+### 7. 模块定义是否清楚？
 
 交互过程还是很清晰的，部件不多。
 
-### 是否有可能的改动？
+### 8. 是否有可能的改动？
 
 1. 目前一切基本都是确定的
 2. 其实相互之间的接口还是比较模糊。关于参数是什么，返回值是什么？还是没有定义好。
