@@ -1,100 +1,88 @@
 # 背景
 
-回到最初的起点，我是否要用go来写？是不是太慢了？一个陌生的语言，开发效率很显然会变慢，并且对我的面试也没什么帮助！
+## 为什么要做这个项目？
 
-1. load balancer在一个分布式系统中很重要。[ref](http://www.aosabook.org/en/distsys.html#fig.distsys.1)
-2. 作为一个分布式系统的组件，让我更熟悉相关领域的东西
-    - 反向代理是什么
-    - 哪些地方要加锁
-    - lb是如何工作的，哪些地方需要注意？
-3. 我不需要策略非常完善，有一个简单的RR就可以了。这样日后，我也能提出一些『优化点』为我所用
-    - 哪些优化点？
-        1. balance 的策略
-        2. 加权
-        3. select -> poll -> epoll
-4. 同时增加了我写golang的经验
-    - 一些锁的场景
-    - goroutine的场景，可以让我简单的熟悉一下goroutine（当然，只是简单的使用了一些）
-5. 是**build-your-own-xxx**上面一个非常值得写的小项目
+1. [熟悉分布式系统相关领域，load balancer 在分布式系统中的重要性](http://www.aosabook.org/en/distsys.html#fig.distsys.1)
+    - **反向代理**是什么
+    - 分布式锁怎么做？
+    - lb如何工作，哪些方面需要注意？
+
+2. 不需要策略非常完善，简单的RR（round-robin）即可。日后进行优化 ---> 哪些潜在的优化点？
+    1. balance 的策略
+        - 加权
+    2. argv ---> config file
+
+3. 增加对语言的熟悉程度
+    - sync/lock
+    - http/http_util/http_test
+    - reverse proxy
+
 
 # 设计目标
 
-1. 能够与我 python 写的 web server 合起来正常工作。以后再完善其他的组件（比如weibo）。
-2. 能够简单的进行负载均衡（作为一个组件这样就足够了）
-    - 能够完成基本的reverse proxy的功能，进行 request/response 的成功中转
-    - 能够找到 next server
-    - 能够正确的（health）找到 next server
-    - 能够保证足够多的request找到 next server
+1. 能够简单的进行负载均衡（作为一个组件足够了）
+    - 【基本功能】  能够完成基本的 reverse proxy 的功能，进行 request/response 的转发。
+    - 【正确】     能够正确的（health）找到 next server
+    - 【高并发】   能够保证足够多的 request 找到 next server
 
 ##  实现的功能
 
-1. 其中是有一个 `response handler(request)` 这样一个功能的函数签名。需要有一个**反向代理**去转发request然后接受response（*这就是nginx的作用？*）
-    - 作者说明一个可复用的接口，写代码之前，如何使用这个接口是我要知道的（TODO 如何测试？）
-2. 能够找到 next index
-    - 在分布式中，这个过程好像叫『选举』（select），我这里的算法是简单的RR
-3. 能够进行对 next index server 进行健康检查 --- 转发的目的地是否有用？  
-    - 作者提供了两种可行的方案。显然，我需要对这两种 healthCheck 方案进行设计（这样未来才好说这块）
-        - 消极 passive 检查
-            - 每次过来一个request，检查一下（会不会太慢）
-        - 积极 active 检查
-            - 一个子进程/线程/goroutine 去检查，每隔多少秒
-                - 检查多少次？什么时候结束检查，并把它标记为错误？
-                - 如何来标记检查？**context**？这是一个成熟的解决方案。
-4. 能够保证足够多的 request 过来能够正常的工作（需要保证『并发』的场景）
-    - 锁？还是其他？（原子操作）
+
+### 调研
+
+1. handler 的形式： `func handler(writer, request)`。
+2. reverse proxy 存在现成的API： `httputil.NewSingleHostReverseProxy(serverUrl)`
+3. 错误处理（转发不成功）： `proxy.ErrorHandler(writer, request, error)`
+4. find next backend
+    - get next index
+        - `atomAdd()`
+    - check backend is health
+        - `bool isAlive`
+        - `setAliveByBackend()`
+        - `setAliveByUrl()`
+3. healthCheck
+    - static check
+        - isAlive
+        - run checking function in backend (goroutine)
+    - ErrorHandler
+        - context
+            - retry
+            - attempt
+
+4. high concurrency
+    - RWLock
+    - atom add
 
 
 
 # 设计思路及折衷
 
-1. 关于选举，算法如果现在选择RR，未来他应该是独立的。如果我要换一个算法，我希望是有一个接口（`getNext`）。
-2. 关于健康检查，有积极和消极两种方式，目前我是希望都实现。不过仍然需要对比一下 TODO .
-    - 积极的通过子进程去检查有没有什么问题？即使我标记了 next 为 true，仍然有可能为false（相当于是错误处理）
-    - 很显然，不仅仅是对next检查，而是对所有的（all）都进行检查
-    - 消极的话，试错成本是不是比较大（time）？
-    - 当然，health 本身，发生的比例应该是不大的，检查能够过滤掉一些，然后消极的尝试（context：retry...）是在积极之后，两者似乎并不冲突。
-3. 
-
-
-TODO 还有哪些设计思路？折衷才是这里要考虑的
-
-1. 一切都是理所当然吗？作者设计了这样的思路我就要这样做吗？又能改进的地方吗？
-    - 我需要考虑哪些方面，
-    - 数据结构的设计，作者用了context，这个
+1. 关于选举，目前是RR，未来可升级（比如加权重）。
+2. 关于健康检查，有积极和消极两种方式.
+    - 通过子进程在 backend 进行检查。(for all backend)
+    - 通过 retry 对同一个backend进行重试，通过attempts 轮询不同的backend，直到找到正常运行的backend，或 attempts > 3。
 
 ## reverse proxy
 
-[example: nginx + flask](https://stackoverflow.com/questions/62945229/nginx-reverse-proxy-for-python-app-using-docker-compose)
-
-1. 调研了一下，python 好像没有这个现成的东西？
-2. 这里的reverse proxy 怎么工作的？所谓的request 和 response 其实是对消息的一个http封装（header + ...）
-3. 有没有比较好的现成的
-
-
-TODO 其实可以改改之前 python 写的那个 web server ，稍微改改就可以作为自己的 reverse proxy 
+[Example: nginx + flask](https://stackoverflow.com/questions/62945229/nginx-reverse-proxy-for-python-app-using-docker-compose)
 
 
 # 系统设计
 
-TODO checklist 《代码大全》
+checklist 《代码大全2》
 
 
 ## 基本介绍
 
-高并发的 client 访问 lb ，回访问临界区 `nextIndex` ，这个 index 在 pool 里面？
-request 获得到了相匹配的server之后，需要』『尝试』发送消息，消息不一定能传到（可能有错误返回，也可能直接返回结果（一个封装好的rp））
-最后 response 被返回给相对应的client
+- 高并发的 client 访问 lb ，会访问临界区 `current`，需要加lock。
+- request 获得到了相匹配的server之后，需要『尝试』发消息，消息不一定能传到（可能有错误返回）
 
 ## 系统流程图及说明
 
 
-
-如何测试？我还不太知道该怎么测试 reverse proxy ， 这种涉及到网络的东西，我希望能够进行mock。
-
-
 ### 相关的一些功能
 
-数据类型基本就是http定义的 request + response
+http struct: request + response
 
 lb:
 - get request 
@@ -104,8 +92,7 @@ lb:
 reverse proxy:
 - send request to backend
 - get response from backend
-- TODO 具体 reverse proxy 怎么使用还要看
-
+- handler func
 
 get_next_index:
 - get current index from pool
@@ -126,45 +113,37 @@ health check
 
 
 
-### 错误恢复、处理、错误信息保存（不单单是log，甚至trace级别的？）
+### 错误恢复、处理、错误信息保存
 
 1. log要做好
 2. 每个阶段验证数据是否正常
     - 正常发送
+    - 异常发送（error、exception）
     - 正常接收
     - 异常接收（error、exception）
 
 
 ### 吞吐量
 
-1. 首先，没有lb的测试结果
-2. 有lb的测试结果
-    - 少于五个backend
-    - 多余五个backend
+TODO test, 1 + n
 
 
 
-### health check 反应时间
+### time about health checking
 
-1. 主动检查，每二十秒钟一次
-2. 被动检查，每三秒钟一次，超过三次即为失败
+1. 主动检查, 10 millseconds
+2. 被动检查, 10 minutes
 
 
 ### 用户唯一关心的就是能接受到正常的 response
 
 1. backend可以返回 `response(backend_name)` 作为验证
-2. 大量的吞吐情况下，如何更大程度的减少瓶颈（原子操作 + 锁带来的损失）
+2. TODO 大量的吞吐情况下，如何更大程度的减少瓶颈（原子操作 + 锁带来的损失）
 
 
 ## 与外部系统的接口
 
-
-
-外部需要开一（多）个 server，client 通过浏览器或者 command line 模拟。
-request 作为一个概念是如何通过socket传递给 lb 最终到达 Server 的。
-我需要留什么样的接口？其实就是一个头一个尾，这样的接口是怎样的？
-我看作者是有一个可直接使用的接口，配上自己写一个`func lb(request, response)`
-
+parse url of backend server from command line.
 
 ### 输入
 
@@ -180,23 +159,11 @@ request 作为一个概念是如何通过socket传递给 lb 最终到达 Server 
 - 转发request
 - 获取response，并转发response
 
+## check list
 
-### 通信界面
+### 独立测试？
 
-如何使用？通过什么样的方式，配置信息？在main里面，
-
-1. 手动设置lb的url
-2. 参数设置几个备用的backend
-3. 通过http访问lb，看看能否正常转发（各个地方log）
-
-```
-// 使用方式
-go main.go {backend_1_url} {backend_2_url} {backend_3_url}
-```
-
-### 每个部件都可以独立进行测试？
-
-1. rp的测试方式。本质就是作为一个client
+1. rp 的测试方式。本质就是作为一个client
 2. get_next:
     - 测试其原子性
 3. set_alive/get_alive
@@ -208,14 +175,14 @@ go main.go {backend_1_url} {backend_2_url} {backend_3_url}
     - 直接终止？
     - 解决问题 + 记录？
 
-### 模块定义是否清楚了
+### 模块定义是否清楚？
 
-这个交互过程还是很清晰的，部件不多，整体的代码其实也不算多，只是一个比较小的项目，但是足够我学习的
+交互过程还是很清晰的，部件不多。
 
 ### 是否有可能的改动？
 
 1. 目前一切基本都是确定的
-2. 其实相互之间的接口还是比较模糊，关于参数是什么、返回值是什么？还是没有定义好
+2. 其实相互之间的接口还是比较模糊。关于参数是什么，返回值是什么？还是没有定义好。
 
 ## 数据结构及说明
 
@@ -230,29 +197,16 @@ backends:
 - current_backend_index
 
 
-
 ## 异常处理
 
 ### health check
 
 被动访问backend失败
 
-#### passive
+#### active 
 
 1. 超过 retry
 2. 超过 attempt
 
-#### active 
+#### passive
 1. 直接设置为False
-
-### select
-
-1. all of them cannot run normally.
-
-
-
-## 优化点
-
-1. 本质也是一种server，所以涉及到select之类的io reuse，可以升级为epoll
-2. 配置化
-3. 选举策略更『智能』
