@@ -9,13 +9,16 @@
 
 2. 不需要策略非常完善，简单的RR（round-robin）即可。日后进行优化 ---> 哪些潜在的优化点？
     1. balance 的策略
-        - 加权
-    2. argv ---> config file
+        - least_conn
+    2. 收集统计数据（比如连接/反应时间），动态调整权重
+    3. command line(argv) -> config file parse
 
-3. 增加对语言的熟悉程度
+3. 增加对 Go 语言的熟悉程度
     - sync/lock
     - http/http_util/http_test
-    - reverse proxy
+        - context
+        - NewServer
+        - reverse proxy
 
 
 # 设计目标
@@ -43,9 +46,9 @@
 3. healthCheck
     - static check
         - isAlive
-        - run checking function in backend (goroutine)
+        - run checking function in backend (**Goroutine**)
     - ErrorHandler
-        - context
+        - **context**
             - retry
             - attempt
 
@@ -59,8 +62,8 @@
 
 1. 关于`get_next_peer`，目前是RR/SRR。
 2. 关于健康检查，有积极和消极两种方式.
-    - 通过子进程在 backend 进行检查。(for all backend)
-    - 通过 retry 对同一个backend进行重试，通过attempts 轮询不同的backend，直到找到正常运行的backend，或 attempts > 3。
+    - 通过 Goroutine 在 backend 进行检查。(for all backend)
+    - 通过 retry 对同一个backend进行重试，通过 attempts 轮询不同的 backend ，直到找到正常运行的 backend ，或 `attempts > {MAX_ATTEMPTS_NUMS}`。
 
 ## reverse proxy
 
@@ -68,9 +71,11 @@
 
 ## Smooth Round Robin(SRR)
 
-- https://blog.csdn.net/zhangskd/article/details/50194069
-- https://github.com/phusion/nginx/commit/27e94984486058d73157038f7950a0a36ecc6e35
+REFS:
 - https://www.nginx.com/resources/glossary/round-robin-load-balancing/
+- https://github.com/phusion/nginx/commit/27e94984486058d73157038f7950a0a36ecc6e35
+- https://blog.csdn.net/zhangskd/article/details/50194069
+
 
 ### 相对于 sample RR 有什么改进？
 
@@ -81,7 +86,7 @@
 
 ### 还有什么其他可以改进的地方？
 
-##### least_conn
+#### least_conn
 
 轮询算法，是把请求平均的转发给各个后端，使它们的负载大致相同。
 这有个前提，就是**每个请求所占用的后端时间要差不多**，如果有些请求占用的时间很长，会导致其所在的后端负载较高。
@@ -91,11 +96,11 @@ least_conn算法很简单，
 1. 首选遍历后端集群，比较每个后端的conns/weight，选取该值最小的后端。
 2. 如果有多个后端的conns/weight值同为最小的，那么对它们采用加权轮询算法。
 
-##### Dynamic round robin
+#### Dynamic round robin
 
 主要思想就是根据后端服务器实时的数据（CPU/MEMORY/DISK...）进行动态调整权重。
 
-[REF](https://github.com/akshah1997/Dynamic-Round-Robin-Scheduling)
+[REF repo](https://github.com/akshah1997/Dynamic-Round-Robin-Scheduling)
 
 
 
@@ -107,8 +112,8 @@ least_conn算法很简单，
 
 ## 基本介绍
 
-- 高并发的 client 访问 lb ，会访问临界区 `current`，需要加lock。
-- request 获得到了相匹配的server之后，需要『尝试』发消息，消息不一定能传到（可能有错误返回）
+- 高并发的 client 访问 lb ，会访问临界区 `current`，需要加 lock。
+- request 获得到了相匹配的 server 之后，需要**尝试**发消息，消息不一定能传到（需要错误处理，调整权重）
 
 ## 系统流程图及说明
 
@@ -116,7 +121,6 @@ least_conn算法很简单，
 
 ### 相关的一些功能
 
-http struct: request + response
 
 lb:
 - get request 
@@ -226,22 +230,20 @@ TODO test, 1 + n
 
 ## 数据结构及说明
 
-backend:
-- url
-- is_alive
-- reverse_proxy(response, request)
-
-
-backends:
-- a_list_of_backend
-- current_backend_index
-
+struct: 
+- Backend:
+    - URL
+    - ALIVE
+    - ReverseProxy
+    - Weight / EffectWeight / CurrentWeight
+- BackendPool
+    - currentBackendIndex
+    - list of {Backend}
 
 ## 异常处理
 
 ### health check
 
-被动访问backend失败
 
 #### active 
 
@@ -249,4 +251,5 @@ backends:
 2. 超过 attempt
 
 #### passive
-1. 直接设置为False
+
+1. 尝试建立链接失败，直接设置为 False
