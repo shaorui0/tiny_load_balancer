@@ -72,6 +72,27 @@
 - https://github.com/phusion/nginx/commit/27e94984486058d73157038f7950a0a36ecc6e35
 - https://www.nginx.com/resources/glossary/round-robin-load-balancing/
 
+### 相对于 sample RR 有什么改进？
+
+1. 关于增加权重
+> **Weighted round robin** – A weight is assigned to each server based on criteria chosen by the site administrator; the most commonly used criterion is the server’s traffic‑handling capacity. The higher the weight, the larger the proportion of client requests the server receives. If, for example, server A is assigned a weight of 3 and server B a weight of 1, the load balancer forwards 3 requests to server A for each 1 it sends to server B.
+
+2. 错误处理，动态调整权重（`effective_weight`）
+
+### 还有什么其他可以改进的地方？
+
+1. least_conn
+
+轮询算法，是把请求平均的转发给各个后端，使它们的负载大致相同。
+这有个前提，就是**每个请求所占用的后端时间要差不多**，如果有些请求占用的时间很长，会导致其所在的后端负载较高。
+在这种场景下，**把请求转发给连接数较少的后端，能够达到更好的负载均衡效果**。
+
+least_conn算法很简单，
+1. 首选遍历后端集群，比较每个后端的conns/weight，选取该值最小的后端。
+2. 如果有多个后端的conns/weight值同为最小的，那么对它们采用加权轮询算法。
+
+
+
 # 系统设计
 
 
