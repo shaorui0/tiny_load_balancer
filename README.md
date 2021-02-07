@@ -57,7 +57,7 @@
 
 # 设计思路及折衷
 
-1. 关于选举，目前是RR，未来可升级（比如加权重）。
+1. 关于`get_next_peer`，目前是RR/SRR。
 2. 关于健康检查，有积极和消极两种方式.
     - 通过子进程在 backend 进行检查。(for all backend)
     - 通过 retry 对同一个backend进行重试，通过attempts 轮询不同的backend，直到找到正常运行的backend，或 attempts > 3。
@@ -78,6 +78,7 @@
 
 ## 系统流程图及说明
 
+[!tiny_load_balancer.png](./tiny_load_balancer.png)
 
 ### 相关的一些功能
 
