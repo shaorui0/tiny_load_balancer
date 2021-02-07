@@ -132,7 +132,6 @@ func (s *ServerPool) getNextPeer() *Backend {
 }
 
 // smooth RR
-
 func (s *ServerPool) getNextPeerSRR() *Backend {
 	total := 0
 	var best *Backend
@@ -159,19 +158,42 @@ func (s *ServerPool) getNextPeerSRR() *Backend {
 		return nil
 	}
 	best.currentWeight -= total
-	// TODO check，这里是引用还是赋值？print
-	// log
-	for idx := 0; idx < len(s.backends); idx++ {
-		println(" weight: ", s.backends[idx].weight)
-	}
-	for idx := 0; idx < len(s.backends); idx++ {
-		println(" currentWeight: ", s.backends[idx].currentWeight)
-	}
-	for idx := 0; idx < len(s.backends); idx++ {
-		println(" effectiveWeight: ", s.backends[idx].effectiveWeight)
-	}
-	println(">>>", best.URL.String())
+
+	logWeightRecord(s, best)
+
 	return best
+}
+
+func logWeightRecord(s *ServerPool, best *Backend) {
+	for idx := 0; idx < len(s.backends); idx++ {
+		log.Printf(" weight: %d", s.backends[idx].weight)
+	}
+	for idx := 0; idx < len(s.backends); idx++ {
+		log.Printf(" currentWeight: %d", s.backends[idx].currentWeight)
+	}
+	for idx := 0; idx < len(s.backends); idx++ {
+		log.Printf(" effectiveWeight: %d", s.backends[idx].effectiveWeight)
+	}
+	log.Printf("Current url of backend: %s", best.URL.String())
+}
+
+func (backend *Backend) SRRFailHandle() {
+	// 在连接后端时，如果发现和后端的通信过程中发生了错误，则减小 effectiveWeight
+	// 此后有新的请求过来时，在选取后端的过程中，再逐步增加 effectiveWeight ，最终又恢复到 weight。
+	backend.effectiveWeight -= backend.weight
+	if backend.effectiveWeight <= 0 {
+		backend.effectiveWeight = 0
+	}
+}
+
+func (s *ServerPool) MarkBackendFail(backendUrl *url.URL) {
+	for _, b := range s.backends {
+		if b.URL.String() == backendUrl.String() {
+			b.SetAlive(false)
+			b.SRRFailHandle()
+			break
+		}
+	}
 }
 
 func lb(w http.ResponseWriter, r *http.Request) {
@@ -182,7 +204,7 @@ func lb(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	peer := serverPool.getNextPeer()
+	peer := serverPool.getNextPeerSRR()
 	if peer != nil {
 		peer.ReverseProxy.ServeHTTP(w, r)
 		return
@@ -203,6 +225,13 @@ func main() {
 	}))
 
 	serverList := fmt.Sprintf("%s,%s,%s", backendServer1.URL, backendServer2.URL, backendServer3.URL)
+
+	// TODO config, test case
+	weightMap := make(map[string]int)
+	weightMap[backendServer1.URL] = 4
+	weightMap[backendServer2.URL] = 2
+	weightMap[backendServer3.URL] = 1
+
 	tokens := strings.Split(serverList, ",")
 	for _, tok := range tokens {
 		serverUrl, err := url.Parse(tok)
@@ -226,7 +255,8 @@ func main() {
 			}
 
 			// set server down
-			serverPool.MarkBackendStatus(serverUrl, false)
+			// serverPool.MarkBackendStatus(serverUrl, false)
+			serverPool.MarkBackendFail(serverUrl)
 
 			// attempts, next backend
 			attempts := GetAttemptsFromContext(request)
@@ -236,9 +266,12 @@ func main() {
 		}
 
 		serverPool.AddBackend(&Backend{
-			URL:          serverUrl,
-			Alive:        true,
-			ReverseProxy: proxy,
+			URL:             serverUrl,
+			Alive:           true,
+			ReverseProxy:    proxy,
+			weight:          weightMap[tok],
+			effectiveWeight: weightMap[tok],
+			currentWeight:   0,
 		})
 		log.Printf("Configured server: %s\n", serverUrl)
 	}
