@@ -112,7 +112,7 @@ least_conn算法很简单，
 
 ## 系统流程图及说明
 
-[!tiny_load_balancer.png](./tiny_load_balancer.png)
+![tiny_load_balancer.png](./tiny_load_balancer.png)
 
 ### 相关的一些功能
 
