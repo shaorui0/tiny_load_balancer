@@ -36,10 +36,13 @@ func GetAttemptsFromContext(r *http.Request) int {
 }
 
 type Backend struct {
-	URL          *url.URL
-	Alive        bool
-	mux          sync.RWMutex
-	ReverseProxy *httputil.ReverseProxy
+	URL             *url.URL
+	Alive           bool
+	mux             sync.RWMutex
+	ReverseProxy    *httputil.ReverseProxy
+	weight          int
+	currentWeight   int
+	effectiveWeight int
 }
 
 func (b *Backend) SetAlive(alive bool) {
@@ -111,6 +114,7 @@ func healthCheck() {
 	}
 }
 
+// simple RR
 func (s *ServerPool) getNextPeer() *Backend {
 	next := int(s.NextIndex())
 	numBackends := len(s.backends)
@@ -125,6 +129,49 @@ func (s *ServerPool) getNextPeer() *Backend {
 		}
 	}
 	return nil
+}
+
+// smooth RR
+
+func (s *ServerPool) getNextPeerSRR() *Backend {
+	total := 0
+	var best *Backend
+	best = nil
+
+	for idx := 0; idx < len(s.backends); idx++ {
+		if s.backends[idx].IsAlive() == false {
+			continue
+		}
+
+		s.backends[idx].currentWeight += s.backends[idx].effectiveWeight
+		total += s.backends[idx].effectiveWeight
+
+		if s.backends[idx].effectiveWeight < s.backends[idx].weight {
+			s.backends[idx].effectiveWeight++
+		}
+
+		if best == nil || s.backends[idx].currentWeight > best.currentWeight {
+			best = s.backends[idx]
+		}
+	}
+
+	if best == nil {
+		return nil
+	}
+	best.currentWeight -= total
+	// TODO check，这里是引用还是赋值？print
+	// log
+	for idx := 0; idx < len(s.backends); idx++ {
+		println(" weight: ", s.backends[idx].weight)
+	}
+	for idx := 0; idx < len(s.backends); idx++ {
+		println(" currentWeight: ", s.backends[idx].currentWeight)
+	}
+	for idx := 0; idx < len(s.backends); idx++ {
+		println(" effectiveWeight: ", s.backends[idx].effectiveWeight)
+	}
+	println(">>>", best.URL.String())
+	return best
 }
 
 func lb(w http.ResponseWriter, r *http.Request) {

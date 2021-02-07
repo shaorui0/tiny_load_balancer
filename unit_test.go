@@ -276,11 +276,11 @@ func TestGetNextPeer(t *testing.T) {
 		log.Fatal(err)
 	}
 
-	backendServer_3 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	backendServer3 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "this call was relayed by the reverse proxy")
 	}))
-	defer backendServer_3.Close()
-	URL_3, err := url.Parse(backendServer_3.URL)
+	defer backendServer3.Close()
+	URL3, err := url.Parse(backendServer3.URL)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -292,7 +292,7 @@ func TestGetNextPeer(t *testing.T) {
 		URL: URL2,
 	})
 	serverPool.AddBackend(&Backend{
-		URL: URL_3,
+		URL: URL3,
 	})
 	serverPool.HealthCheck() // init isAlive status
 	println(serverPool.getNextPeer().URL.String(), serverPool.current)
@@ -300,12 +300,80 @@ func TestGetNextPeer(t *testing.T) {
 	println(serverPool.getNextPeer().URL.String(), serverPool.current)
 
 	backendServer2.Close()
-	backendServer_3.Close()
+	backendServer3.Close()
 	serverPool.HealthCheck() // re-init isAlive status
 	if URL1.String() != serverPool.getNextPeer().URL.String() {
 		t.Errorf("only server 1 is running.")
 	}
 	backendServer1.Close()
+}
+
+func TestGetNextPeerSRR(t *testing.T) {
+	var serverPool ServerPool
+
+	backendServer1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, "this call was relayed by the reverse proxy")
+	}))
+	defer backendServer1.Close()
+	URL1, err := url.Parse(backendServer1.URL)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	backendServer2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, "this call was relayed by the reverse proxy")
+	}))
+	defer backendServer2.Close()
+	URL2, err := url.Parse(backendServer2.URL)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	backendServer3 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, "this call was relayed by the reverse proxy")
+	}))
+	defer backendServer3.Close()
+	URL3, err := url.Parse(backendServer3.URL)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	serverPool.AddBackend(&Backend{
+		URL:             URL1,
+		weight:          4,
+		effectiveWeight: 4,
+		currentWeight:   0,
+	})
+	serverPool.AddBackend(&Backend{
+		URL:             URL2,
+		weight:          2,
+		effectiveWeight: 2,
+		currentWeight:   0,
+	})
+	serverPool.AddBackend(&Backend{
+		URL:             URL3,
+		weight:          1,
+		effectiveWeight: 1,
+		currentWeight:   0,
+	})
+
+	expect := [...]string{"a", "b", "a", "c", "a", "b", "a"}
+	m := make(map[string]string)
+	m[URL1.String()] = "a"
+	m[URL2.String()] = "b"
+	m[URL3.String()] = "c"
+
+	idx := 0
+	for {
+		if m[serverPool.getNextPeerSRR().URL.String()] != expect[idx] {
+			t.Errorf("TestGetNextPeerSRR")
+		}
+
+		if serverPool.backends[0].currentWeight == 0 && serverPool.backends[1].currentWeight == 0 && serverPool.backends[2].currentWeight == 0 {
+			break
+		}
+		idx++
+	}
 }
 
 func TestLBAttemptsMoreThanThree(t *testing.T) {
