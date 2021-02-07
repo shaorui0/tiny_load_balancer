@@ -81,7 +81,7 @@
 
 ### 还有什么其他可以改进的地方？
 
-1. least_conn
+##### least_conn
 
 轮询算法，是把请求平均的转发给各个后端，使它们的负载大致相同。
 这有个前提，就是**每个请求所占用的后端时间要差不多**，如果有些请求占用的时间很长，会导致其所在的后端负载较高。
@@ -90,6 +90,14 @@
 least_conn算法很简单，
 1. 首选遍历后端集群，比较每个后端的conns/weight，选取该值最小的后端。
 2. 如果有多个后端的conns/weight值同为最小的，那么对它们采用加权轮询算法。
+
+##### Dynamic round robin
+
+主要思想就是根据后端服务器实时的数据（CPU/MEMORY/DISK...）进行动态调整权重。
+
+[REF](https://github.com/akshah1997/Dynamic-Round-Robin-Scheduling)
+
+
 
 
 
