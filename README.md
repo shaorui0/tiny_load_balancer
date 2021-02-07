@@ -66,7 +66,7 @@
 
 [Example: nginx + flask](https://stackoverflow.com/questions/62945229/nginx-reverse-proxy-for-python-app-using-docker-compose)
 
-## Smooth Round Robin
+## Smooth Round Robin(SRR)
 
 - https://blog.csdn.net/zhangskd/article/details/50194069
 - https://github.com/phusion/nginx/commit/27e94984486058d73157038f7950a0a36ecc6e35
