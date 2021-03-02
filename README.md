@@ -1,3 +1,4 @@
+
 # 背景
 
 ## 为什么要做这个项目？
@@ -19,6 +20,50 @@
         - context
         - NewServer
         - reverse proxy
+
+## 负载均衡相关算法
+
+
+### RR / SRR
+
+场景：
+1. 平均分配负载，让每个 server 上的 request 大致相同。
+2. 最简单的 scale out。机器性能已知，功能相同。
+
+劣势：
+无法动态分配（real-time data），比如：
+1. CPU/memory/disk...
+2. qps...
+
+### least_conn
+
+首选遍历后端集群，比较每个后端的conns/weight，选取该值最小的后端。
+如果有多个后端的conns/weight值同为最小的，那么对它们采用加权轮询算法。
+
+这里主要区别就是对 conns 数据的关注
+1. 每个 worker 上的连接数需要记录（配置中有最大上限）
+2. 比较简单的动态分配算法，动态关注 conns
+
+[How Nginx is tracking number of connections for least_conn load balancing?](https://stackoverflow.com/questions/35000888/how-nginx-is-tracking-number-of-connections-for-least-conn-load-balancing)
+
+### 一致性hash
+
+> 当后端是**缓存服务器**时，经常使用一致性哈希算法来进行负载均衡。
+> 使用一致性哈希的好处在于，增减集群的缓存服务器时，只有少量的缓存会失效，回源量较小。
+> 在nginx+ats / haproxy+squid等CDN架构中，nginx/haproxy所使用的负载均衡算法便是一致性哈希
+
+简单理解一下就是减少 cache miss （分布式缓存 server 场景下）
+
+为什么不会产生不必要的 cache miss ？
+
+hash 的本质过程是什么？通过 hash 函数对 input 进行一些计算得到 output 。分布式场景下肯定是有机器数的，根据机器 id 将 request 打到不同的 server 上。如果某个机器 down 掉了，一般的缓存函数是不是就失效了？那么一致性哈希是如何做到的？
+- When you add a cache machine, then object o will be cached into the machine:  `hash(o) mod (n+1)`
+- When you remove a cache machine, then object o will be cached into the machine:   `hash(o) mod (n-1)`
+
+[TODO 一致性hash介绍](https://www.codeproject.com/Articles/56138/Consistent-hashing)
+[nginx - consistent_hashing]https://blog.csdn.net/zhangskd/article/details/50256111
+
+其中数学原理需要进一步学习，但是其使用场景（**分布式缓存，负载均衡**），在工程上是必须知道的。
 
 
 # 设计目标
@@ -71,6 +116,8 @@
 
 ## Smooth Round Robin(SRR)
 
+nginx 默认的负载均衡算法。
+
 REFS:
 - https://www.nginx.com/resources/glossary/round-robin-load-balancing/
 - https://github.com/phusion/nginx/commit/27e94984486058d73157038f7950a0a36ecc6e35
@@ -97,6 +144,8 @@ least_conn算法很简单，
 2. 如果有多个后端的conns/weight值同为最小的，那么对它们采用加权轮询算法。
 
 #### Dynamic round robin
+
+> [Dynamic round robin – A weight is assigned to each server dynamically, based on real‑time data about the server’s current load and idle capacity.](https://www.nginx.com/resources/glossary/round-robin-load-balancing/)
 
 主要思想就是根据后端服务器实时的数据（CPU/MEMORY/DISK...）进行动态调整权重。
 
